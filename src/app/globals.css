@@ -1,0 +1,110 @@
+@import "tailwindcss";
+
+@theme {
+  --color-coal: #0b0a08;
+  --color-ink: #14110e;
+  --color-ink2: #1e1915;
+  --color-line: #2c251f;
+  --color-ember: #d8432a;
+  --color-ember2: #ef5a2e;
+  --color-gold: #c9a24b;
+  --color-gold2: #e8cd86;
+  --color-cream: #f4eee3;
+  --color-muted: #a79c8c;
+
+  --font-display: var(--font-cormorant);
+  --font-body: var(--font-manrope);
+  --font-script: var(--font-vibes);
+}
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+  body {
+    background-color: var(--color-coal);
+    color: var(--color-cream);
+    font-family: var(--font-body);
+    -webkit-font-smoothing: antialiased;
+  }
+  ::selection {
+    background: var(--color-ember);
+    color: #fff;
+  }
+  input[type="date"]::-webkit-calendar-picker-indicator,
+  input[type="time"]::-webkit-calendar-picker-indicator {
+    filter: invert(0.8) sepia(1) saturate(3) hue-rotate(-20deg);
+    cursor: pointer;
+  }
+}
+
+@utility no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+@utility glass {
+  background: rgba(255, 255, 255, 0.04);
+  backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* Subtle Chinese lattice pattern overlay */
+.pattern-bg {
+  background-image:
+    radial-gradient(circle at 1px 1px, rgba(201, 162, 75, 0.14) 1px, transparent 0);
+  background-size: 26px 26px;
+}
+
+.brush {
+  position: relative;
+  display: inline-block;
+  background: linear-gradient(100deg, #c23a20 0%, #ef5a2e 55%, #d8432a 100%);
+  border-radius: 4px 18px 6px 16px / 14px 6px 18px 6px;
+  transform: rotate(-1.2deg);
+  box-shadow: 0 6px 24px -8px rgba(216, 67, 42, 0.55);
+}
+
+.gold-line {
+  background: linear-gradient(90deg, transparent, var(--color-gold), transparent);
+}
+
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(26px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes kenburns {
+  from { transform: scale(1.08); }
+  to { transform: scale(1); }
+}
+@keyframes floaty {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-8px); }
+}
+@keyframes shimmer {
+  from { background-position: -200% 0; }
+  to { background-position: 200% 0; }
+}
+
+.anim-fade-up { animation: fadeUp 0.9s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.anim-fade-in { animation: fadeIn 1.2s ease both; }
+.anim-kenburns { animation: kenburns 8s ease-out both; }
+.anim-floaty { animation: floaty 4s ease-in-out infinite; }
+
+.skeleton {
+  background: linear-gradient(90deg, #1e1915 25%, #2a221b 50%, #1e1915 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.6s infinite;
+}
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: #0b0a08; }
+::-webkit-scrollbar-thumb { background: #332a22; border-radius: 8px; }
+::-webkit-scrollbar-thumb:hover { background: #4a3d31; }
