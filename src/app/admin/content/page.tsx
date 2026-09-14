@@ -196,13 +196,34 @@ export default function ContentPage() {
     setBusy(true);
 
     try {
-      // about.body: convert line breaks to JSON paragraphs
       const payload: Content = {
         ...data,
       };
 
+      // Convert About paragraphs into exactly one JSON array.
+      // Also unwrap old incorrectly double-encoded data.
+      const rawAbout = data["about.body"] || "";
+
+      let aboutText = rawAbout;
+
+      for (let i = 0; i < 10; i++) {
+        try {
+          const parsed = JSON.parse(aboutText);
+
+          if (Array.isArray(parsed)) {
+            aboutText = parsed.join("\n");
+          } else if (typeof parsed === "string") {
+            aboutText = parsed;
+          } else {
+            break;
+          }
+        } catch {
+          break;
+        }
+      }
+
       payload["about.body"] = JSON.stringify(
-        (data["about.body"] || "")
+        aboutText
           .split(/\n+/)
           .map((s) => s.trim())
           .filter(Boolean)
@@ -232,17 +253,28 @@ export default function ContentPage() {
     );
   }
 
-  // Show stored paragraphs as editable lines
+  // Show stored About paragraphs as normal editable lines.
+  // This also fixes old repeatedly JSON-encoded content.
   const aboutLines = (() => {
-    try {
-      const arr = JSON.parse(data["about.body"] || "[]");
+    let value = data["about.body"] || "";
 
-      return Array.isArray(arr)
-        ? arr.join("\n")
-        : data["about.body"] || "";
-    } catch {
-      return data["about.body"] || "";
+    for (let i = 0; i < 10; i++) {
+      try {
+        const parsed = JSON.parse(value);
+
+        if (Array.isArray(parsed)) {
+          value = parsed.join("\n");
+        } else if (typeof parsed === "string") {
+          value = parsed;
+        } else {
+          break;
+        }
+      } catch {
+        break;
+      }
     }
+
+    return value;
   })();
 
   return (
