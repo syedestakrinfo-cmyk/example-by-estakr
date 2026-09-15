@@ -1,7 +1,6 @@
 "use client";
-import { useCallback, useEffect, useState } from "react";
-import { Badge, ConfirmDialog, EmptyState, Icon, Modal, Spinner, inputCls } from "@/components/ui";
-import { Card, PageHeader, api } from "@/components/admin";
+
+import { useEffect, useMemo, useState } from "react";
 import { waLink } from "@/lib/helpers";
 
 type Booking = {
@@ -9,265 +8,511 @@ type Booking = {
   code: string;
   name: string;
   phone: string;
-  email: string | null;
+  email: string;
   ceremonyType: string;
   eventDate: string;
   preferredTime: string;
   guests: number;
-  message: string | null;
+  message: string;
   status: string;
   createdAt: string;
 };
-type CType = { id: number; name: string; active: boolean; sort: number };
 
-const FILTERS = ["all", "pending", "confirmed", "cancelled"];
+type CType = {
+  id: number;
+  name: string;
+  active: boolean;
+  sort: number;
+};
 
-export default function BookingsPage() {
-  const [tab, setTab] = useState<"bookings" | "types">("bookings");
-  const [rows, setRows] = useState<Booking[]>([]);
+async function api(url: string, options?: RequestInit) {
+  const response = await fetch(url, {
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...(options?.headers || {}),
+    },
+  });
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data?.error || "Something went wrong");
+  }
+
+  return data;
+}
+
+export default function AdminBookingsPage() {
+  const [bookings, setBookings] = useState<Booking[]>([]);
   const [types, setTypes] = useState<CType[]>([]);
-  const [q, setQ] = useState("");
-  const [status, setStatus] = useState("all");
-  const [loading, setLoading] = useState(true);
-  const [view, setView] = useState<Booking | null>(null);
-  const [del, setDel] = useState<Booking | null>(null);
-  const [busyId, setBusyId] = useState<number | null>(null);
   const [wa, setWa] = useState("");
-  const [newType, setNewType] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const [search, setSearch] = useState("");
+  const [status, setStatus] = useState("all");
+  const [ceremony, setCeremony] = useState("all");
+
+  const [view, setView] = useState<Booking | null>(null);
+
+  const load = async () => {
     try {
+      setLoading(true);
+      setError("");
+
       const params = new URLSearchParams();
-      if (q) params.set("q", q);
-      if (status !== "all") params.set("status", status);
-      const [b, t, c] = await Promise.all([
-        api<Booking[]>(`/api/admin/bookings?${params}`),
-        api<CType[]>("/api/admin/ceremony-types"),
-        wa ? Promise.resolve({ "contact.whatsapp": wa }) : api<Record<string, string>>("/api/content"),
-      ]);
-      setRows(b);
-      setTypes(t);
-      setWa(c["contact.whatsapp"] || "");
-    } catch {
-      /* toast would go here */
+
+      if (search.trim()) {
+        params.set("search", search.trim());
+      }
+
+      if (status !== "all") {
+        params.set("status", status);
+      }
+
+      if (ceremony !== "all") {
+        params.set("ceremonyType", ceremony);
+      }
+
+      const bookingUrl =
+        "/api/admin/bookings?" + params.toString();
+
+      const bookingData = (await api(bookingUrl)) as Booking[];
+
+      const typeData = (await api(
+        "/api/admin/ceremony-types"
+      )) as CType[];
+
+      let contentData: Record<string, string> = {};
+
+      if (wa) {
+        contentData = {
+          "contact.whatsapp": wa,
+        };
+      } else {
+        contentData = (await api(
+          "/api/content"
+        )) as Record<string, string>;
+      }
+
+      setBookings(bookingData);
+      setTypes(typeData);
+      setWa(contentData["contact.whatsapp"] || "");
+    } catch (err) {
+      console.error(err);
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Unable to load bookings."
+      );
     } finally {
       setLoading(false);
     }
-  }, [q, status, wa]);
+  };
 
   useEffect(() => {
-    const t = setTimeout(load, 250);
-    return () => clearTimeout(t);
-  }, [load]);
+    load();
+  }, [status, ceremony]);
 
-  const setStatusOf = async (b: Booking, s: string) => {
-    setBusyId(b.id);
+  const filteredBookings = useMemo(() => {
+    const q = search.trim().toLowerCase();
+
+    if (!q) return bookings;
+
+    return bookings.filter((b) => {
+      return (
+        b.name.toLowerCase().includes(q) ||
+        b.code.toLowerCase().includes(q) ||
+        b.phone.toLowerCase().includes(q) ||
+        b.email.toLowerCase().includes(q)
+      );
+    });
+  }, [bookings, search]);
+
+  const updateStatus = async (
+    booking: Booking,
+    newStatus: string
+  ) => {
     try {
-      await api(`/api/admin/bookings/${b.id}`, { method: "PATCH", body: JSON.stringify({ status: s }) });
+      await api("/api/admin/bookings", {
+        method: "PATCH",
+        body: JSON.stringify({
+          id: booking.id,
+          status: newStatus,
+        }),
+      });
+
       await load();
-      setView(null);
-    } finally {
-      setBusyId(null);
+
+      setView((current) =>
+        current
+          ? {
+              ...current,
+              status: newStatus,
+            }
+          : null
+      );
+    } catch (err) {
+      alert(
+        err instanceof Error
+          ? err.message
+          : "Unable to update booking."
+      );
     }
   };
 
-  const remove = async () => {
-    if (!del) return;
-    setBusyId(del.id);
-    await api(`/api/admin/bookings/${del.id}`, { method: "DELETE" }).catch(() => {});
-    setDel(null);
-    await load();
-    setBusyId(null);
+  const cancelBooking = async (booking: Booking) => {
+    const confirmed = window.confirm(
+      `Cancel booking ${booking.code}?`
+    );
+
+    if (!confirmed) return;
+
+    await updateStatus(booking, "cancelled");
   };
 
-  const addType = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newType.trim()) return;
-    await api("/api/admin/ceremony-types", { method: "POST", body: JSON.stringify({ name: newType.trim(), sort: types.length }) });
-    setNewType("");
-    await load();
-  };
-
-  const waMsg = (b: Booking) =>
+  const waMsg = (booking: Booking) =>
     waLink(
-      wa,
-      `Hello ${b.name}! 👋 This is China Garden, Comilla.\n\nRegarding your ceremony booking ${b.code} (${b.ceremonyType} on ${b.eventDate}, ${b.preferredTime}, ${b.guests} guests) — status: ${b.status.toUpperCase()}.\n\nPlease let us know if you have any questions.`
+      booking.phone,
+      `Hello ${booking.name}! 👋 This is China Garden, Comilla.
+
+Regarding your ceremony booking ${booking.code} (${booking.ceremonyType} on ${booking.eventDate}, ${booking.preferredTime}, ${booking.guests} guests) — status: ${booking.status.toUpperCase()}.
+
+Please let us know if you have any questions.`
     );
 
   return (
-    <div>
-      <PageHeader title="Ceremony Bookings" sub="Review, confirm or cancel ceremony requests. Changes appear instantly on the customer status page." />
+    <div className="min-h-screen bg-coal text-cream">
+      <div className="mx-auto max-w-7xl px-5 py-8">
+        <div className="mb-8 flex flex-col justify-between gap-4 md:flex-row md:items-center">
+          <div>
+            <h1 className="font-display text-3xl font-semibold">
+              Ceremony Bookings
+            </h1>
 
-      <div className="mb-6 flex gap-2">
-        {(["bookings", "types"] as const).map((t) => (
-          <button
-            key={t}
-            onClick={() => setTab(t)}
-            className={`rounded-lg px-4 py-2 text-sm font-bold ${tab === t ? "bg-ember text-white" : "border border-line text-muted hover:text-cream"}`}
-          >
-            {t === "bookings" ? `Bookings (${rows.length})` : "Ceremony Types"}
-          </button>
-        ))}
-      </div>
-
-      {tab === "bookings" ? (
-        <>
-          <div className="mb-4 flex flex-col gap-3 sm:flex-row">
-            <div className="relative flex-1">
-              <Icon name="search" className="pointer-events-none absolute left-3 top-1/2 w-4 h-4 -translate-y-1/2 text-muted" />
-              <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search by ID, name or phone…" className={`${inputCls} pl-9`} />
-            </div>
-            <div className="flex gap-2">
-              {FILTERS.map((f) => (
-                <button
-                  key={f}
-                  onClick={() => setStatus(f)}
-                  className={`rounded-lg border px-3.5 py-2 text-xs font-bold uppercase tracking-wider ${
-                    status === f ? "border-ember bg-ember text-white" : "border-line text-muted hover:text-cream"
-                  }`}
-                >
-                  {f}
-                </button>
-              ))}
-            </div>
+            <p className="mt-2 text-sm text-cream/60">
+              Manage and review customer ceremony bookings.
+            </p>
           </div>
 
-          {loading ? (
-            <div className="flex h-48 items-center justify-center text-gold"><Spinner className="w-7 h-7" /></div>
-          ) : rows.length === 0 ? (
-            <EmptyState icon="calendar" title="No bookings found" message="Try a different search or filter." />
-          ) : (
-            <Card className="overflow-x-auto">
-              <table className="w-full min-w-[900px] text-left text-sm">
-                <thead>
-                  <tr className="border-b border-line text-[11px] uppercase tracking-wider text-muted">
-                    {["Booking ID", "Customer", "Phone", "Ceremony", "Date", "Time", "Guests", "Status", "Created", "Actions"].map((h) => (
-                      <th key={h} className="px-4 py-3">{h}</th>
-                    ))}
+          <button
+            onClick={load}
+            className="rounded-xl border border-white/10 bg-white/5 px-5 py-3 text-sm font-semibold transition hover:bg-white/10"
+          >
+            Refresh
+          </button>
+        </div>
+
+        <div className="mb-6 grid gap-3 rounded-2xl border border-white/10 bg-white/5 p-4 md:grid-cols-[1fr_180px_180px_auto]">
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search name, code, phone..."
+            className="rounded-xl border border-white/10 bg-black/20 px-4 py-3 text-sm outline-none placeholder:text-cream/30 focus:border-gold"
+          />
+
+          <select
+            value={status}
+            onChange={(e) => setStatus(e.target.value)}
+            className="rounded-xl border border-white/10 bg-black/20 px-4 py-3 text-sm outline-none focus:border-gold"
+          >
+            <option value="all">All Status</option>
+            <option value="pending">Pending</option>
+            <option value="confirmed">Confirmed</option>
+            <option value="cancelled">Cancelled</option>
+          </select>
+
+          <select
+            value={ceremony}
+            onChange={(e) => setCeremony(e.target.value)}
+            className="rounded-xl border border-white/10 bg-black/20 px-4 py-3 text-sm outline-none focus:border-gold"
+          >
+            <option value="all">All Ceremonies</option>
+
+            {types.map((type) => (
+              <option key={type.id} value={type.name}>
+                {type.name}
+              </option>
+            ))}
+          </select>
+
+          <button
+            onClick={load}
+            className="rounded-xl bg-gold px-5 py-3 text-sm font-bold text-coal transition hover:bg-gold2"
+          >
+            Search
+          </button>
+        </div>
+
+        {error && (
+          <div className="mb-6 rounded-xl border border-red-400/20 bg-red-400/10 p-4 text-sm text-red-300">
+            {error}
+          </div>
+        )}
+
+        {loading ? (
+          <div className="rounded-2xl border border-white/10 bg-white/5 p-8 text-center text-cream/60">
+            Loading bookings...
+          </div>
+        ) : filteredBookings.length === 0 ? (
+          <div className="rounded-2xl border border-white/10 bg-white/5 p-8 text-center text-cream/60">
+            No bookings found.
+          </div>
+        ) : (
+          <div className="overflow-hidden rounded-2xl border border-white/10 bg-white/5">
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[900px] text-left">
+                <thead className="border-b border-white/10 bg-black/20">
+                  <tr>
+                    <th className="px-5 py-4 text-xs font-semibold uppercase tracking-wider text-cream/50">
+                      Booking
+                    </th>
+
+                    <th className="px-5 py-4 text-xs font-semibold uppercase tracking-wider text-cream/50">
+                      Customer
+                    </th>
+
+                    <th className="px-5 py-4 text-xs font-semibold uppercase tracking-wider text-cream/50">
+                      Ceremony
+                    </th>
+
+                    <th className="px-5 py-4 text-xs font-semibold uppercase tracking-wider text-cream/50">
+                      Date
+                    </th>
+
+                    <th className="px-5 py-4 text-xs font-semibold uppercase tracking-wider text-cream/50">
+                      Guests
+                    </th>
+
+                    <th className="px-5 py-4 text-xs font-semibold uppercase tracking-wider text-cream/50">
+                      Status
+                    </th>
+
+                    <th className="px-5 py-4 text-right text-xs font-semibold uppercase tracking-wider text-cream/50">
+                      Action
+                    </th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-line">
-                  {rows.map((b) => (
-                    <tr key={b.id} className="hover:bg-ink2/50">
-                      <td className="px-4 py-3 font-mono text-xs text-gold2">{b.code}</td>
-                      <td className="px-4 py-3 text-cream">{b.name}</td>
-                      <td className="px-4 py-3 text-muted">{b.phone}</td>
-                      <td className="px-4 py-3 text-muted">{b.ceremonyType}</td>
-                      <td className="px-4 py-3 text-muted">{b.eventDate}</td>
-                      <td className="px-4 py-3 text-muted">{b.preferredTime}</td>
-                      <td className="px-4 py-3 text-cream">{b.guests}</td>
-                      <td className="px-4 py-3"><Badge status={b.status} /></td>
-                      <td className="px-4 py-3 text-xs text-muted">{new Date(b.createdAt).toLocaleDateString("en-GB", { day: "2-digit", month: "short" })}</td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-1">
-                          <button onClick={() => setView(b)} title="View details" className="rounded p-1.5 text-muted hover:bg-ink2 hover:text-cream"><Icon name="eye" className="w-4 h-4" /></button>
-                          {b.status !== "confirmed" && (
-                            <button onClick={() => setStatusOf(b, "confirmed")} title="Confirm" className="rounded p-1.5 text-muted hover:bg-emerald-500/10 hover:text-emerald-400">
-                              {busyId === b.id ? <Spinner className="w-4 h-4" /> : <Icon name="check" className="w-4 h-4" />}
-                            </button>
-                          )}
-                          {b.status !== "cancelled" && (
-                            <button onClick={() => setStatusOf(b, "cancelled")} title="Cancel" className="rounded p-1.5 text-muted hover:bg-red-500/10 hover:text-red-400"><Icon name="x" className="w-4 h-4" /></button>
-                          )}
-                          <a href={waMsg(b)} target="_blank" rel="noreferrer" title="Contact on WhatsApp" className="rounded p-1.5 text-muted hover:bg-emerald-500/10 hover:text-emerald-400"><Icon name="whatsapp" className="w-4 h-4" /></a>
-                          <button onClick={() => setDel(b)} title="Delete" className="rounded p-1.5 text-muted hover:bg-red-500/10 hover:text-red-400"><Icon name="trash" className="w-4 h-4" /></button>
+
+                <tbody>
+                  {filteredBookings.map((booking) => (
+                    <tr
+                      key={booking.id}
+                      className="border-b border-white/5 last:border-0 hover:bg-white/[0.03]"
+                    >
+                      <td className="px-5 py-4">
+                        <div className="font-semibold text-gold">
+                          {booking.code}
                         </div>
+
+                        <div className="mt-1 text-xs text-cream/40">
+                          {booking.preferredTime}
+                        </div>
+                      </td>
+
+                      <td className="px-5 py-4">
+                        <div className="font-medium">
+                          {booking.name}
+                        </div>
+
+                        <div className="mt-1 text-xs text-cream/50">
+                          {booking.phone}
+                        </div>
+                      </td>
+
+                      <td className="px-5 py-4">
+                        {booking.ceremonyType}
+                      </td>
+
+                      <td className="px-5 py-4">
+                        {booking.eventDate}
+                      </td>
+
+                      <td className="px-5 py-4">
+                        {booking.guests}
+                      </td>
+
+                      <td className="px-5 py-4">
+                        <span
+                          className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold capitalize ${
+                            booking.status === "confirmed"
+                              ? "bg-green-400/10 text-green-300"
+                              : booking.status === "cancelled"
+                                ? "bg-red-400/10 text-red-300"
+                                : "bg-yellow-400/10 text-yellow-300"
+                          }`}
+                        >
+                          {booking.status}
+                        </span>
+                      </td>
+
+                      <td className="px-5 py-4 text-right">
+                        <button
+                          onClick={() => setView(booking)}
+                          className="rounded-lg border border-white/10 px-4 py-2 text-sm font-semibold transition hover:bg-white/10"
+                        >
+                          Details
+                        </button>
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
-            </Card>
-          )}
-        </>
-      ) : (
-        <Card className="p-5">
-          <form onSubmit={addType} className="mb-5 flex gap-2">
-            <input value={newType} onChange={(e) => setNewType(e.target.value)} placeholder="New ceremony type, e.g. Graduation Party" className={inputCls} />
-            <button type="submit" className="shrink-0 rounded-lg bg-ember px-5 py-2.5 text-sm font-bold text-white hover:bg-ember2">Add</button>
-          </form>
-          <ul className="divide-y divide-line">
-            {types.map((t) => (
-              <li key={t.id} className="flex items-center justify-between py-3">
-                <span className="text-sm font-semibold text-cream">{t.name}</span>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={async () => { await api(`/api/admin/ceremony-types/${t.id}`, { method: "PATCH", body: JSON.stringify({ active: !t.active }) }); load(); }}
-                    className={`rounded-full border px-3 py-1 text-[11px] font-bold uppercase ${t.active ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300" : "border-line text-muted"}`}
-                  >
-                    {t.active ? "Active" : "Hidden"}
-                  </button>
-                  <button
-                    onClick={async () => { await api(`/api/admin/ceremony-types/${t.id}`, { method: "DELETE" }); load(); }}
-                    className="rounded p-1.5 text-muted hover:text-red-400"
-                  >
-                    <Icon name="trash" className="w-4 h-4" />
-                  </button>
-                </div>
-              </li>
-            ))}
-          </ul>
-        </Card>
-      )}
-
-      <Modal open={!!view} onClose={() => setView(null)} title={view?.code || ""} wide>
-        {view && (
-          <div>
-            <div className="mb-4 flex items-center justify-between">
-              <Badge status={view.status} />
-              <span className="text-xs text-muted">Submitted {new Date(view.createdAt).toLocaleString()}</span>
-            </div>
-            <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
-              {[
-                ["Customer", view.name],
-                ["Phone", view.phone],
-                ["Email", view.email || "—"],
-                ["Ceremony", view.ceremonyType],
-                ["Event Date", view.eventDate],
-                ["Preferred Time", view.preferredTime],
-                ["Guests", String(view.guests)],
-              ].map(([k, v]) => (
-                <div key={k}>
-                  <dt className="text-[11px] font-bold uppercase tracking-wider text-muted">{k}</dt>
-                  <dd className="text-sm font-semibold text-cream">{v}</dd>
-                </div>
-              ))}
-            </dl>
-            {view.message && (
-              <div className="mt-4 rounded-lg border border-line bg-coal/50 p-3">
-                <p className="text-[11px] font-bold uppercase tracking-wider text-muted">Special Requirements</p>
-                <p className="mt-1 text-sm text-cream/90">{view.message}</p>
-              </div>
-            )}
-            <div className="mt-5 flex flex-wrap gap-2">
-              <a href={waMsg(view)} target="_blank" rel="noreferrer" className="flex items-center gap-2 rounded-lg bg-[#1faa53] px-4 py-2.5 text-sm font-bold text-white hover:brightness-110">
-                <Icon name="whatsapp" className="w-4 h-4" /> WhatsApp
-              </a>
-              <a href={`tel:${view.phone.replace(/[^\d+]/g, "")}`} className="flex items-center gap-2 rounded-lg border border-line px-4 py-2.5 text-sm font-semibold text-cream hover:border-gold/50">
-                <Icon name="phone" className="w-4 h-4" /> Call
-              </a>
-              {view.status !== "confirmed" && (
-                <button onClick={() => setStatusOf(view, "confirmed")} className="rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-emerald-500">Confirm</button>
-              )}
-              {view.status !== "cancelled" && (
-                <button onClick={() => setStatusOf(view, "cancelled")} className="rounded-lg bg-red-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-red-500">Cancel Booking</button>
-              )}
             </div>
           </div>
         )}
-      </Modal>
 
-      <ConfirmDialog
-        open={!!del}
-        title="Delete booking?"
-        message={`Permanently delete ${del?.code}? This cannot be undone.`}
-        confirmText="Delete"
-        danger
-        busy={busyId === del?.id}
-        onConfirm={remove}
-        onClose={() => setDel(null)}
-      />
+        {view && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-5">
+            <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-white/10 bg-coal p-6 shadow-2xl">
+              <div className="mb-6 flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-sm text-cream/50">
+                    Booking Code
+                  </p>
+
+                  <h2 className="mt-1 font-display text-2xl font-semibold text-gold">
+                    {view.code}
+                  </h2>
+                </div>
+
+                <button
+                  onClick={() => setView(null)}
+                  className="rounded-lg border border-white/10 px-3 py-2 text-sm hover:bg-white/10"
+                >
+                  Close
+                </button>
+              </div>
+
+              <div className="mb-6 grid gap-4 sm:grid-cols-2">
+                <div>
+                  <p className="text-xs uppercase tracking-wider text-cream/40">
+                    Name
+                  </p>
+                  <p className="mt-1 font-medium">
+                    {view.name}
+                  </p>
+                </div>
+
+                <div>
+                  <p className="text-xs uppercase tracking-wider text-cream/40">
+                    Phone
+                  </p>
+                  <p className="mt-1 font-medium">
+                    {view.phone}
+                  </p>
+                </div>
+
+                <div>
+                  <p className="text-xs uppercase tracking-wider text-cream/40">
+                    Email
+                  </p>
+                  <p className="mt-1 font-medium">
+                    {view.email || "—"}
+                  </p>
+                </div>
+
+                <div>
+                  <p className="text-xs uppercase tracking-wider text-cream/40">
+                    Ceremony
+                  </p>
+                  <p className="mt-1 font-medium">
+                    {view.ceremonyType}
+                  </p>
+                </div>
+
+                <div>
+                  <p className="text-xs uppercase tracking-wider text-cream/40">
+                    Date
+                  </p>
+                  <p className="mt-1 font-medium">
+                    {view.eventDate}
+                  </p>
+                </div>
+
+                <div>
+                  <p className="text-xs uppercase tracking-wider text-cream/40">
+                    Preferred Time
+                  </p>
+                  <p className="mt-1 font-medium">
+                    {view.preferredTime}
+                  </p>
+                </div>
+
+                <div>
+                  <p className="text-xs uppercase tracking-wider text-cream/40">
+                    Guests
+                  </p>
+                  <p className="mt-1 font-medium">
+                    {view.guests}
+                  </p>
+                </div>
+
+                <div>
+                  <p className="text-xs uppercase tracking-wider text-cream/40">
+                    Status
+                  </p>
+
+                  <p className="mt-1 font-semibold capitalize">
+                    {view.status}
+                  </p>
+                </div>
+              </div>
+
+              {view.message && (
+                <div className="mb-6 rounded-xl border border-white/10 bg-white/5 p-4">
+                  <p className="text-xs uppercase tracking-wider text-cream/40">
+                    Customer Message
+                  </p>
+
+                  <p className="mt-2 whitespace-pre-wrap text-sm text-cream/80">
+                    {view.message}
+                  </p>
+                </div>
+              )}
+
+              <div className="flex flex-wrap gap-3">
+                <a
+                  href={waMsg(view)}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex items-center gap-2 rounded-lg bg-[#1faa53] px-4 py-2.5 text-sm font-bold text-white hover:brightness-110"
+                >
+                  WhatsApp
+                </a>
+
+                <a
+                  href={"tel:" + view.phone}
+                  className="flex items-center gap-2 rounded-lg bg-blue-500 px-4 py-2.5 text-sm font-bold text-white hover:brightness-110"
+                >
+                  Call
+                </a>
+
+                {view.status !== "cancelled" && (
+                  <button
+                    onClick={() => cancelBooking(view)}
+                    className="rounded-lg bg-red-500 px-4 py-2.5 text-sm font-bold text-white hover:brightness-110"
+                  >
+                    Cancel Booking
+                  </button>
+                )}
+
+                {view.status === "pending" && (
+                  <button
+                    onClick={() =>
+                      updateStatus(view, "confirmed")
+                    }
+                    className="rounded-lg bg-green-500 px-4 py-2.5 text-sm font-bold text-white hover:brightness-110"
+                  >
+                    Confirm Booking
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
