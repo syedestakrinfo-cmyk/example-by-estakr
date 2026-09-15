@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useState } from "react";
+import { useRouter } from "next/navigation";
 
 type Booking = {
   code: string;
@@ -13,6 +14,8 @@ type Booking = {
 };
 
 export default function CheckBookingPage() {
+  const router = useRouter();
+
   const [searchType, setSearchType] = useState<"code" | "phone">("code");
   const [value, setValue] = useState("");
   const [booking, setBooking] = useState<Booking | null>(null);
@@ -95,6 +98,15 @@ export default function CheckBookingPage() {
   return (
     <main className="min-h-screen bg-coal px-5 py-16 text-cream">
       <div className="mx-auto max-w-2xl">
+
+        <button
+          type="button"
+          onClick={() => router.back()}
+          className="mb-8 inline-flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-cream/70 transition hover:border-gold/40 hover:bg-white/10 hover:text-gold"
+        >
+          <span className="text-lg">←</span>
+          Back
+        </button>
 
         <div className="mb-8 text-center">
           <p className="mb-2 text-sm font-semibold uppercase tracking-[0.25em] text-gold">
