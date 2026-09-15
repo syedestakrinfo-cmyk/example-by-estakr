@@ -1,18 +1,20 @@
 console.log("BOOKING STATUS API LOADED");
 
 import { NextResponse } from "next/server";
-import { eq } from "drizzle-orm";
+import { or, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { bookings } from "@/db/schema";
 
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
-    const code = searchParams.get("code")?.trim().toUpperCase();
 
-    if (!code) {
+    const code = searchParams.get("code")?.trim().toUpperCase();
+    const phone = searchParams.get("phone")?.trim();
+
+    if (!code && !phone) {
       return NextResponse.json(
-        { error: "Booking code is required." },
+        { error: "Booking code or phone number is required." },
         { status: 400 }
       );
     }
@@ -28,7 +30,11 @@ export async function GET(request: Request) {
         status: bookings.status,
       })
       .from(bookings)
-      .where(eq(bookings.code, code))
+      .where(
+        code
+          ? eq(bookings.code, code)
+          : eq(bookings.phone, phone!)
+      )
       .limit(1);
 
     if (result.length === 0) {

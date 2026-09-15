@@ -13,7 +13,8 @@ type Booking = {
 };
 
 export default function CheckBookingPage() {
-  const [code, setCode] = useState("");
+  const [searchType, setSearchType] = useState<"code" | "phone">("code");
+  const [value, setValue] = useState("");
   const [booking, setBooking] = useState<Booking | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -24,18 +25,34 @@ export default function CheckBookingPage() {
     setBooking(null);
     setError("");
 
-    const bookingCode = code.trim().toUpperCase();
+    const searchValue = value.trim();
 
-    if (!bookingCode) {
-      setError("Please enter your booking code.");
+    if (!searchValue) {
+      setError(
+        searchType === "code"
+          ? "Please enter your booking code."
+          : "Please enter your phone number."
+      );
       return;
     }
 
     setLoading(true);
 
     try {
+      let parameter = "";
+
+      if (searchType === "code") {
+        parameter =
+          "code=" +
+          encodeURIComponent(searchValue.toUpperCase());
+      } else {
+        parameter =
+          "phone=" +
+          encodeURIComponent(searchValue);
+      }
+
       const response = await fetch(
-        `/api/booking-status?code=${encodeURIComponent(bookingCode)}`
+        "/api/booking-status?" + parameter
       );
 
       const data = await response.json();
@@ -47,15 +64,38 @@ export default function CheckBookingPage() {
 
       setBooking(data);
     } catch {
-      setError("Unable to check booking status. Please try again.");
+      setError(
+        "Unable to check booking status. Please try again."
+      );
     } finally {
       setLoading(false);
     }
   };
 
+  const tabClass = (active: boolean) => {
+    if (active) {
+      return "rounded-lg bg-gold px-4 py-3 text-sm font-semibold text-coal";
+    }
+
+    return "rounded-lg px-4 py-3 text-sm font-semibold text-cream/60 hover:text-cream";
+  };
+
+  const statusClass = () => {
+    if (booking?.status === "confirmed") {
+      return "rounded-full bg-green-400/10 px-4 py-2 text-sm font-semibold capitalize text-green-300";
+    }
+
+    if (booking?.status === "cancelled") {
+      return "rounded-full bg-red-400/10 px-4 py-2 text-sm font-semibold capitalize text-red-300";
+    }
+
+    return "rounded-full bg-yellow-400/10 px-4 py-2 text-sm font-semibold capitalize text-yellow-300";
+  };
+
   return (
     <main className="min-h-screen bg-coal px-5 py-16 text-cream">
       <div className="mx-auto max-w-2xl">
+
         <div className="mb-8 text-center">
           <p className="mb-2 text-sm font-semibold uppercase tracking-[0.25em] text-gold">
             China Garden
@@ -66,7 +106,7 @@ export default function CheckBookingPage() {
           </h1>
 
           <p className="mt-3 text-cream/70">
-            Enter your booking code to see the latest status of your booking.
+            Check your booking status using your booking code or phone number.
           </p>
         </div>
 
@@ -74,15 +114,52 @@ export default function CheckBookingPage() {
           onSubmit={checkBooking}
           className="rounded-2xl border border-white/10 bg-white/5 p-6"
         >
+
+          <div className="mb-5 grid grid-cols-2 gap-2 rounded-xl bg-black/20 p-1">
+
+            <button
+              type="button"
+              onClick={() => {
+                setSearchType("code");
+                setValue("");
+                setError("");
+                setBooking(null);
+              }}
+              className={tabClass(searchType === "code")}
+            >
+              Booking Code
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setSearchType("phone");
+                setValue("");
+                setError("");
+                setBooking(null);
+              }}
+              className={tabClass(searchType === "phone")}
+            >
+              Phone Number
+            </button>
+
+          </div>
+
           <label className="mb-2 block text-sm font-medium">
-            Booking Code
+            {searchType === "code"
+              ? "Booking Code"
+              : "Phone Number"}
           </label>
 
           <input
-            type="text"
-            value={code}
-            onChange={(e) => setCode(e.target.value)}
-            placeholder="Example: CG-8F4K29"
+            type={searchType === "phone" ? "tel" : "text"}
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            placeholder={
+              searchType === "code"
+                ? "Example: CG-8F4K29"
+                : "Example: 01712345678"
+            }
             className="w-full rounded-xl border border-white/10 bg-black/20 px-4 py-3 text-cream outline-none placeholder:text-cream/30 focus:border-gold"
           />
 
@@ -99,57 +176,82 @@ export default function CheckBookingPage() {
               {error}
             </p>
           )}
+
         </form>
 
         {booking && (
           <div className="mt-6 rounded-2xl border border-white/10 bg-white/5 p-6">
+
             <div className="mb-6 flex items-center justify-between gap-4">
+
               <div>
-                <p className="text-sm text-cream/50">Booking Code</p>
-                <p className="font-semibold text-gold">{booking.code}</p>
+                <p className="text-sm text-cream/50">
+                  Booking Code
+                </p>
+
+                <p className="font-semibold text-gold">
+                  {booking.code}
+                </p>
               </div>
 
-              <span
-                className={`rounded-full px-4 py-2 text-sm font-semibold capitalize ${
-                  booking.status === "confirmed"
-                    ? "bg-green-400/10 text-green-300"
-                    : booking.status === "cancelled"
-                      ? "bg-red-400/10 text-red-300"
-                      : "bg-yellow-400/10 text-yellow-300"
-                }`}
-              >
+              <span className={statusClass()}>
                 {booking.status}
               </span>
+
             </div>
 
             <div className="grid gap-4 sm:grid-cols-2">
+
               <div>
-                <p className="text-sm text-cream/50">Name</p>
-                <p className="mt-1">{booking.name}</p>
+                <p className="text-sm text-cream/50">
+                  Name
+                </p>
+                <p className="mt-1">
+                  {booking.name}
+                </p>
               </div>
 
               <div>
-                <p className="text-sm text-cream/50">Ceremony</p>
-                <p className="mt-1">{booking.ceremonyType}</p>
+                <p className="text-sm text-cream/50">
+                  Ceremony
+                </p>
+                <p className="mt-1">
+                  {booking.ceremonyType}
+                </p>
               </div>
 
               <div>
-                <p className="text-sm text-cream/50">Date</p>
-                <p className="mt-1">{booking.eventDate}</p>
+                <p className="text-sm text-cream/50">
+                  Date
+                </p>
+                <p className="mt-1">
+                  {booking.eventDate}
+                </p>
               </div>
 
               <div>
-                <p className="text-sm text-cream/50">Preferred Time</p>
-                <p className="mt-1">{booking.preferredTime}</p>
+                <p className="text-sm text-cream/50">
+                  Preferred Time
+                </p>
+                <p className="mt-1">
+                  {booking.preferredTime}
+                </p>
               </div>
 
               <div>
-                <p className="text-sm text-cream/50">Guests</p>
-                <p className="mt-1">{booking.guests}</p>
+                <p className="text-sm text-cream/50">
+                  Guests
+                </p>
+                <p className="mt-1">
+                  {booking.guests}
+                </p>
               </div>
+
             </div>
+
           </div>
         )}
+
       </div>
     </main>
   );
